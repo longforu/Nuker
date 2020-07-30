@@ -158,7 +158,6 @@ class AddBlockButton{
 		dialog.style.display = 'none';
 		dialog.style.visibility = 'hidden';
 		const spans = Array.from(dialog.querySelectorAll('span'));
-		console.log(spans);
 		const blockSpan = spans.find(span=>span.innerHTML === 'Block');
 		blockSpan.click();
 	}
@@ -187,11 +186,21 @@ const awaitForRoot = (func)=>async ()=>{
 	const rootElement = await getRootElement();
 	const rootObserver = new ObserveClass(rootElement);
 	const result = await func(rootElement,rootObserver);
-	console.log('func done');
 	rootObserver.destructor();
-	console.log(result);
 	return result
 }
+
+var _listeners = [];
+
+EventTarget.prototype.addEventListenerBase = EventTarget.prototype.addEventListener;
+EventTarget.prototype.addEventListener = function(type, listener)
+{
+    _listeners.push({target: this, type: type, listener: listener});
+    if(type==='blur')console.log(type);
+    this.addEventListenerBase(type, listener);
+};
+
+let totalBlocked = 0;
 
 class Run{
 	constructor(){
@@ -200,12 +209,9 @@ class Run{
 	}
 
 	run = async ()=>{
-		console.log('run');
 		this.rootElement = await getRootElement();
 		this.rootObserver = new ObserveClass(this.rootElement);
-		console.log('hello`')
 		this.rootElement.runQueryAll('article').forEach(this.inject)
-		console.log('hello');
 		this.rootObserver.addToPersistent('article',(elem)=>this.inject(elem))
 	}
 
@@ -216,8 +222,8 @@ class Run{
 	}
 
 	resolveModal = async (modal)=>{
-		console.log('resolving modal');
-		const personlist = modal.children[1].children[0].children[0];
+		const timeline = await modal.waitForAnElement('div[aria-label*="Timeline"]')
+		const personlist = timeline.children[0].children[0];
 		if(!personlist.children.length) return true;
 		const person = personlist.runQuery("div[role='button']").parentNode.parentNode;
 		await this.dissectModal(person);
@@ -239,32 +245,25 @@ class Run{
 		const more = await document.body.waitForAnElement("div[aria-label='More']")
 		more.click();
 		const menu = await document.body.waitForAnElement("div[role='menu']");
-		console.log(menu)
 		const items = menu.runQueryAll('div[role="menuitem"]');
 		// await Promise.allSettled(items.map(e=>(e.waitForAnElement('span'))));
 		const specific = items.find(item=>item.runQueryAll('span').filter(e=>!e.children.length&&e.innerHTML).find(e=>e.innerHTML.match(/Block @/)));
 		specific.click();
 		const dialog = document.querySelector('div[role="alertdialog"]');
 		const spans = Array.from(dialog.querySelectorAll('span'));
-		console.log(spans);
 		const blockSpan = spans.find(span=>span.innerHTML === 'Block');
 		blockSpan.click();
 	})
 
 	beginNuke =  (rightA)=>new Promise(r=>{
-		console.log('calling begin');
 		rightA.click();
-		console.log(this.layerObserver);
 		this.layerObserver = new ObserveClass(getElement('div[id="layers"]'))
-		console.log(this.layerObserver);
 
 		const findLambda = (e)=>{
 			return e.runQueryAll('span').find(e=>e.innerHTML.match(/No items/))
 		}
 		let finished = false
 		const done = async ()=>{
-			console.log('called');
-			console.log('done block');
 			history.back();
 			await (new Promise(r=>setTimeout(r,1000)));
 			return await this.getArticle();
@@ -272,14 +271,10 @@ class Run{
 		const notDone = async (e)=>{
 			await this.resolveModal(e);
 			await this.block()
-			console.log('block done');
 			history.back();
 			history.back();
 			await (new Promise(r=>setTimeout(r,1000)));
-			console.log('back done');
-			console.log('awaiting to get article')
 			await this.getArticle();
-			console.log('article got')
 			await this.recursiveNuke();
 		}
 		
@@ -287,7 +282,6 @@ class Run{
 		const wrapper = (func)=>async (...args)=>{
 			if(finished) return;
 			finished = true;
-			console.log(func)
 			const result = await func(...args);
 			r(result);
 		}
@@ -299,24 +293,18 @@ class Run{
 	})
 
 	nukeBridge = async (elem,changeState,r)=>{
-		console.log('calling bridge')
 		const rightA = elem.runQueryAll('a').find(e=>e.href.match(/likes/))
 		if(!rightA) return;
 		const allSpans = rightA.runQueryAll('span').filter(e=>!e.children.length && e.innerHTML);
 		if(!allSpans.find(e=>e.innerHTML === 'Likes')) return;
 		changeState();
 		const result = await this.beginNuke(rightA);
-		console.log("end bridge");
-		console.log(result);
 		r(result)
 	}
 
 	recursiveNuke = awaitForRoot((rootElement,rootObserver)=>new Promise(r=>{
-		console.log('calling recursive')
 		let found = false;
 		const lambda = (e)=>found||this.nukeBridge(e,()=>found = true,(result)=>{
-			console.log("end recursive");
-			console.log(result);
 			r(result);
 		})
 		rootElement.runQueryAll('article').forEach(lambda)
@@ -325,15 +313,12 @@ class Run{
 
 	getArticle = awaitForRoot((rootElement,rootObserver)=>new Promise(r=>{
 		const lambda = (elem)=>{
-			console.log(elem);
 			const rightA = elem.runQueryAll('a').find(e=>e.href.match(/likes/))
 			if(!rightA) return;
 			const allSpans = rightA.runQueryAll('span').filter(e=>!e.children.length && e.innerHTML);
 			if(!allSpans.find(e=>e.innerHTML === 'Likes')) return;
-			console.log(elem);
 			r(elem);
 		}
-		console.log(rootElement);
 		rootElement.runQueryAll('article').forEach(lambda)
 		rootObserver.addToPersistent('article',lambda)
 	}))
@@ -349,6 +334,10 @@ class Run{
 			const sure = confirm("Are you sure you want to nuke this tweet?");
 			if(!sure) return;
 			running = true;
+			const getFocus=()=>{
+				document.focus()
+			};
+			document.addEventListener('blur',getFocus)
 			await this.beginNuke(rightA)
 			await this.blockMain(await this.getArticle());
 			running = false;
@@ -368,7 +357,6 @@ class URLObserver{
 		this.processURL();
 		const observer = new MutationObserver(this.testURL);
 		observer.observe(document.body,{childList:true,subtree:true})
-		console.log('init');
 	}
 
 	testURL = ()=>{
@@ -390,7 +378,6 @@ class URLObserver{
 	processURL = ()=>{
 		const location = this.location;
 		if(this.running) this.running.destructor();
-		console.log(location);
 		if(location.match(/status/) && !location.match(/likes/) && !running) return this.running = new Run();
 	}
 
