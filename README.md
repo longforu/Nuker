@@ -10,7 +10,7 @@ The source code is open so everyone can see and make changes. The extension does
 1. Install the extension, see above.
 2. Click on the tweet you would like to nuke.
 3. Click on the block icon in the toolbar
-\n
+<br/>
 ![Screenshot](direction.png)
-\n
+
 4. Confirm and watch the mushroom cloud
